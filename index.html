@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Report Portal</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%230C6B65'/%3E%3Cpath d='M4 9h16M4 15h16M9 4v16M15 4v16' stroke='%23fff' stroke-opacity='.45'/%3E%3Crect x='15' y='15' width='5' height='5' fill='%23E2A01B'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+  <div id="app"><div class="boot" role="status">Loading…</div></div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/calc.js"></script>
+  <script src="assets/js/core.js"></script>
+  <script src="assets/js/admin.js"></script>
+  <script src="assets/js/data.js"></script>
+  <script>RP.start();</script>
+</body>
+</html>
