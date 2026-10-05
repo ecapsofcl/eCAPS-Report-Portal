@@ -1,7 +1,7 @@
 /* Report Portal - data entry, report views and import */
 (function () {
   'use strict';
-  const { api, esc, $, $$, toast, modal, setBusy, route, state, pageHead, emptyState, getLists, getReports, reportMeta, loadError, MONTHS } = RP;
+  const { api, esc, $, $$, toast, modal, setBusy, route, state, pageHead, emptyState, getLists, getReports, getRecords, forgetRecords, reportMeta, loadError, MONTHS } = RP;
   const C = window.RPCalc;
   const isNumeric = function (t) { return C.NUMERIC.indexOf(t) !== -1; };
   const PALETTE = ['#0C6B65', '#E2A01B', '#4F6A8F', '#B0392A', '#6E8B3D', '#8A5A83', '#2A9D8F', '#C9772C', '#3D4F58', '#D4B24C'];
@@ -68,14 +68,21 @@
     async function load() {
       const m = sel.period.slice(0, 7);
       $('#en-body', main).innerHTML = loadingHtml();
+      const forPeriod = sel.period;
       let data;
       try {
-        data = await api('records.get', { reportId: report.id, from: C.monthAdd(m, -13), to: isDate ? sel.period : m });
+        data = await getRecords(report.id, C.monthAdd(m, -13), isDate ? sel.period : m, function (fresh) {
+          // Newer figures arrived: show them unless the person has started typing.
+          if (ctx.alive() && sel.period === forPeriod && !dirtyCount()) apply(fresh);
+        });
       } catch (err) {
         if (ctx.alive()) loadError($('#en-body', main), err, load);
         return;
       }
       if (!ctx.alive()) return;
+      apply(data);
+    }
+    function apply(data) {
       ds = new C.Dataset(data.report, data.records, lists, data.linked);
       locks = data.locks;
       renderSelectors();
@@ -436,6 +443,7 @@
       setBusy(btn, true, 'Saving…');
       try {
         const res = await api('records.save', { reportId: report.id, rows: Object.keys(rows).map(function (k) { return rows[k]; }) });
+        forgetRecords();
         ds.upsert(res.records);
         toast(res.saved ? 'Saved ' + res.saved + ' change' + (res.saved === 1 ? '' : 's') + '.' : 'Nothing needed saving.');
         renderGrid();
@@ -487,16 +495,20 @@
 
     async function load() {
       $('#v-body', main).innerHTML = loadingHtml();
+      const forFy = sel.fy;
       let data;
       try {
-        data = await api('records.get', {
-          reportId: report.id, from: C.fyStartMonth(sel.fy - 1, ys), to: C.monthAdd(C.fyStartMonth(sel.fy, ys), 11),
+        data = await getRecords(report.id, C.fyStartMonth(sel.fy - 1, ys), C.monthAdd(C.fyStartMonth(sel.fy, ys), 11), function (fresh) {
+          if (ctx.alive() && sel.fy === forFy) apply(fresh);
         });
       } catch (err) {
         if (ctx.alive()) loadError($('#v-body', main), err, load);
         return;
       }
       if (!ctx.alive()) return;
+      apply(data);
+    }
+    function apply(data) {
       ds = new C.Dataset(data.report, data.records, lists, data.linked);
       loadedFy = sel.fy;
       render();
@@ -970,6 +982,7 @@
             changed += r.saved;
             prog.textContent = done.toLocaleString('en-IN') + ' of ' + records.length.toLocaleString('en-IN') + ' rows…';
           }
+          forgetRecords();
           toast('Import finished: ' + changed.toLocaleString('en-IN') + ' figures added or changed.');
           prog.textContent = 'Done. ' + changed.toLocaleString('en-IN') + ' figures added or changed.';
           setBusy(go, false);
