@@ -1,7 +1,7 @@
 /* Edit these values before publishing the site. */
 window.CONFIG = {
   // Paste the Web App URL from Apps Script (Deploy > Manage deployments). It ends in /exec.
-  API_URL: 'https://script.google.com/macros/s/AKfycby8ELOh2bljHSWGrONZSMHVe_ZlU5UEgUk0_EfEjyb9B9dCsCaHj4Xfi6x2v3Ia7BFP9g/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbyXsNce_kdUkJBJjfUeWHXV3g-oB4ap-8SBdAjQ6a9dRpHGpTtH6bII0j0lIywE8KJ5wg/exec',
 
   APP_NAME: 'Report Portal',
   CURRENCY: 'INR',
