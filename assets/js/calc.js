@@ -317,6 +317,8 @@ window.RPCalc = (function () {
   };
   // A typed value, or the figure from the linked report when that report has data for the month and branch.
   Dataset.prototype.effective = function (field, p, b, item) {
+    const typed = this.raw(p, b, item, field.code);
+    if (typed !== null && typed !== '') return typed;
     const link = this.linkFor(field, item);
     if (link) {
       const src = this.linked[link.reportId];
@@ -325,7 +327,7 @@ window.RPCalc = (function () {
         return src.value(link.field, src.ctx([p], [b], items));
       }
     }
-    return this.raw(p, b, item, field.code);
+    return null;
   };
   Dataset.prototype.ctx = function (periods, branches, items) { return new Ctx(this, periods, branches, items); };
 
