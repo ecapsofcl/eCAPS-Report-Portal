@@ -38,24 +38,60 @@ window.RP = (function () {
     return CONFIG.API_URL && /^https:\/\/script\.google\.com\//.test(CONFIG.API_URL);
   }
 
-  async function api(action, payload) {
-    if (!apiConfigured()) throw new Error('The portal is not connected yet. Set API_URL in assets/js/config.js.');
-    let res;
+  // Requests that only read data are safe to repeat automatically.
+  const READ_ACTIONS = /^(auth\.me|users\.list|lists\.all|reports\.(list|get)|access\.all|records\.get|locks\.list|status\.get|audit\.list)$/;
+
+  // Google sometimes leaves its reply hanging even after the script has finished.
+  // Each attempt is cut off after a time limit; reads are retried, so a stuck
+  // reply costs seconds instead of leaving the page on "Loading…".
+  async function fetchOnce(action, payload, ms) {
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(function () { ctrl.abort(); }, ms) : null;
     try {
-      // text/plain avoids a CORS preflight, which Apps Script cannot answer.
-      res = await fetch(CONFIG.API_URL, {
+      const res = await fetch(CONFIG.API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action: action, token: state.token, payload: payload || {} }),
+        signal: ctrl ? ctrl.signal : undefined,
+        cache: 'no-store',
       });
+      try {
+        return await res.json();
+      } catch (e) {
+        const err = new Error('The server sent an unexpected response. Check that API_URL points to the deployed web app.');
+        err.badResponse = true;
+        throw err;
+      }
     } catch (e) {
-      throw new Error('Could not reach the server. Check your internet connection and try again.');
+      if (e.badResponse) throw e;
+      const err = new Error(e && e.name === 'AbortError'
+        ? 'The server took too long to reply.'
+        : 'Could not reach the server. Check your internet connection and try again.');
+      err.retryable = true;
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
     }
-    let body;
-    try {
-      body = await res.json();
-    } catch (e) {
-      throw new Error('The server sent an unexpected response. Check that API_URL points to the deployed web app.');
+  }
+
+  async function api(action, payload) {
+    if (!apiConfigured()) throw new Error('The portal is not connected yet. Set API_URL in assets/js/config.js.');
+    const isRead = READ_ACTIONS.test(action);
+    const limits = isRead ? [12000, 20000, 40000] : [90000];
+    let body, lastErr;
+    for (let i = 0; i < limits.length; i++) {
+      try {
+        body = await fetchOnce(action, payload, limits[i]);
+        break;
+      } catch (e) {
+        lastErr = e;
+        if (!e.retryable) throw e;
+      }
+    }
+    if (!body) {
+      if (!isRead) lastErr.message += ' Your change may still have been saved: reload the page to check before trying again.';
+      else lastErr.message += ' Please try again.';
+      throw lastErr;
     }
     if (!body.ok) {
       if (body.code === 'AUTH' && action !== 'auth.login') {
