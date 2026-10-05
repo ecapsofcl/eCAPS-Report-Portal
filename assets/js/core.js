@@ -39,7 +39,7 @@ window.RP = (function () {
   }
 
   // Requests that only read data are safe to repeat automatically.
-  const READ_ACTIONS = /^(auth\.login|auth\.me|users\.list|lists\.all|reports\.(list|get)|access\.all|records\.get|locks\.list|status\.get|audit\.list)$/;
+  const READ_ACTIONS = /^(app\.boot|auth\.login|auth\.me|users\.list|lists\.all|reports\.(list|get)|access\.all|records\.get|locks\.list|status\.get|audit\.list)$/;
 
   // Google sometimes leaves its reply hanging even after the script has finished.
   // Each attempt is cut off after a time limit; reads are retried, so a stuck
@@ -471,6 +471,7 @@ window.RP = (function () {
     clearSession();
     clearListsCache();
     clearReportsCache();
+    forgetRecords();
     $('#app').innerHTML = '';
     history.replaceState(null, '', '#/login');
     navigate();
@@ -522,6 +523,8 @@ window.RP = (function () {
         saveSession(res.token, res.user);
         clearListsCache();
         clearReportsCache();
+        forgetRecords();
+        boot().catch(function () { /* pages retry on their own */ });
         $('#app').innerHTML = '';
         history.replaceState(null, '', '#' + home(res.user.role));
         navigate();
@@ -585,19 +588,58 @@ window.RP = (function () {
   /* ---------------- shared data ---------------- */
 
   let listsCache = null;
+  let reportsCache = null;
+  let booting = null;
+
+  // Reports and lists arrive together in one request at start-up.
+  function boot() {
+    if (!booting) {
+      booting = api('app.boot').then(function (d) {
+        listsCache = d.lists;
+        reportsCache = d.reports;
+      }).finally(function () { booting = null; });
+    }
+    return booting;
+  }
   async function getLists(force) {
-    if (!listsCache || force) listsCache = await api('lists.all');
+    if (force) listsCache = null;
+    if (!listsCache) {
+      if (!reportsCache || booting) await boot();
+      else listsCache = await api('lists.all');
+    }
     return listsCache;
   }
-  function clearListsCache() { listsCache = null; }
-
-  // The report list rarely changes, so it is fetched once per visit and reused.
-  let reportsCache = null;
   async function getReports(force) {
-    if (!reportsCache || force) reportsCache = await api('reports.list');
+    if (force) reportsCache = null;
+    if (!reportsCache) {
+      if (!listsCache || booting) await boot();
+      else reportsCache = await api('reports.list');
+    }
     return reportsCache;
   }
+  function clearListsCache() { listsCache = null; }
   function clearReportsCache() { reportsCache = null; }
+
+  // Figures already seen are shown at once; fresh figures load in the background
+  // and replace them if anything changed.
+  let recordsCache = {};
+  async function getRecords(reportId, from, to, onFresh) {
+    const key = reportId + '|' + from + '|' + to;
+    function fetchIt() {
+      return api('records.get', { reportId: reportId, from: from, to: to }).then(function (d) {
+        const sig = JSON.stringify([d.records, d.linked, d.locks, d.report.updatedAt]);
+        const changed = !recordsCache[key] || recordsCache[key].sig !== sig;
+        recordsCache[key] = { data: d, sig: sig };
+        return { data: d, changed: changed };
+      });
+    }
+    if (recordsCache[key]) {
+      fetchIt().then(function (r) { if (r.changed && onFresh) onFresh(r.data); }).catch(function () { /* keep what is shown */ });
+      return recordsCache[key].data;
+    }
+    return (await fetchIt()).data;
+  }
+  function forgetRecords() { recordsCache = {}; }
 
   // Shown when loading figures fails, instead of an endless "Loading…".
   function loadError(el, err, retry) {
@@ -636,6 +678,6 @@ window.RP = (function () {
     fmtNumber: fmtNumber, fmtCurrency: fmtCurrency, fmtCompact: fmtCompact, fmtDate: fmtDate,
     fmtDateTime: fmtDateTime, fmtValue: fmtValue, monthLabel: monthLabel, todayISO: todayISO,
     isBlank: isBlank, randomPassword: randomPassword, reduceMotion: reduceMotion,
-    ROLE_LABEL: ROLE_LABEL, MONTHS: MONTHS, start: start, signOut: signOut, setLeaveGuard: setLeaveGuard, getLists: getLists, clearListsCache: clearListsCache, getReports: getReports, clearReportsCache: clearReportsCache, loadError: loadError, reportMeta: reportMeta,
+    ROLE_LABEL: ROLE_LABEL, MONTHS: MONTHS, start: start, signOut: signOut, setLeaveGuard: setLeaveGuard, getLists: getLists, clearListsCache: clearListsCache, getReports: getReports, clearReportsCache: clearReportsCache, loadError: loadError, getRecords: getRecords, forgetRecords: forgetRecords, boot: boot, reportMeta: reportMeta,
   };
 })();
