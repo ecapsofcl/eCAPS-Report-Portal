@@ -39,7 +39,7 @@ window.RP = (function () {
   }
 
   // Requests that only read data are safe to repeat automatically.
-  const READ_ACTIONS = /^(auth\.me|users\.list|lists\.all|reports\.(list|get)|access\.all|records\.get|locks\.list|status\.get|audit\.list)$/;
+  const READ_ACTIONS = /^(auth\.login|auth\.me|users\.list|lists\.all|reports\.(list|get)|access\.all|records\.get|locks\.list|status\.get|audit\.list)$/;
 
   // Google sometimes leaves its reply hanging even after the script has finished.
   // Each attempt is cut off after a time limit; reads are retried, so a stuck
@@ -55,13 +55,17 @@ window.RP = (function () {
         signal: ctrl ? ctrl.signal : undefined,
         cache: 'no-store',
       });
-      try {
-        return await res.json();
-      } catch (e) {
-        const err = new Error('The server sent an unexpected response. Check that API_URL points to the deployed web app.');
+      let data = null;
+      try { data = await res.json(); } catch (e) { data = null; }
+      if (!data || typeof data !== 'object') {
+        // Google sometimes answers its second hop with a 404 or an HTML page even
+        // though the script ran. For reads this is worth another attempt.
+        const err = new Error('The server sent an unexpected response (' + res.status + ').');
         err.badResponse = true;
+        err.retryable = true;
         throw err;
       }
+      return data;
     } catch (e) {
       if (e.badResponse) throw e;
       const err = new Error(e && e.name === 'AbortError'
