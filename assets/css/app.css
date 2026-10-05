@@ -520,3 +520,5 @@ th.calc-col { color: var(--teal-2); }
 .entry-table td.linked { min-width: 170px; }
 .month-picker select[data-part=y] { min-width: 86px; }
 .month-picker select[data-part=m] { min-width: 76px; }
+.pick-table select { width: 220px; }
+.pick-table td:first-child { width: 36px; }
