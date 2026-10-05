@@ -174,6 +174,11 @@
             Object.keys(UNIT_LABEL).map(function (u) { return '<option value="' + u + '"' + (s.unit === u ? ' selected' : '') + '>' + UNIT_LABEL[u] + '</option>'; }).join('') + '</select></div>' +
           '<div class="field"><label for="s-dec">Decimals</label><select id="s-dec">' +
             [0, 1, 2].map(function (d) { return '<option value="' + d + '"' + (Number(s.decimals) === d ? ' selected' : '') + '>' + d + '</option>'; }).join('') + '</select></div>' +
+          (s.itemList ? '<div class="field"><label for="s-rows">Entry screen</label><select id="s-rows">' +
+            '<option value="0">List every item</option>' +
+            [3, 5, 6, 7, 8, 10, 12, 15, 20].concat(Number(s.entryRows) > 0 && [3, 5, 6, 7, 8, 10, 12, 15, 20].indexOf(Number(s.entryRows)) === -1 ? [Number(s.entryRows)] : [])
+              .map(function (n) { return '<option value="' + n + '"' + (Number(s.entryRows) === n ? ' selected' : '') + '>Pick items from a dropdown: ' + n + ' rows</option>'; }).join('') +
+            '</select></div>' : '') +
           '<div class="field"><span class="label">Record key</span><p class="static">' + (s.itemList ? 'Period + Branch + Item' : 'Period + Branch') + '</p></div>' +
         '</div>' +
         '<fieldset class="field"><legend>Branches</legend><div class="check-grid">' +
@@ -189,6 +194,8 @@
         renderSettings(); renderFields(); renderPreview();
       });
       $('#s-unit', box).addEventListener('change', function (e) { s.unit = e.target.value; });
+      const rowsSel = $('#s-rows', box);
+      if (rowsSel) rowsSel.addEventListener('change', function (e) { s.entryRows = Number(e.target.value); });
       $('#s-dec', box).addEventListener('change', function (e) { s.decimals = Number(e.target.value); });
       $$('.check-grid input', box).forEach(function (c) {
         c.addEventListener('change', function () {
