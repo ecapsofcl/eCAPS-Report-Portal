@@ -57,6 +57,9 @@
       field: saved.field || '',
     };
     let ds = null, locks = [], originals = {};
+    // Pick mode: a fixed number of rows, each with an item chosen from a dropdown.
+    let pickRows = [];
+    function pickMode() { return !!(ds && ds.hasItems && Number(ds.settings.entryRows) > 0); }
 
     main.innerHTML = pageHead(report.name, reportMeta(report, lists),
       (state.user.role === 'superadmin' ? '<a class="btn btn-quiet" href="#/view/' + encodeURIComponent(report.id) + '">View report</a>' +
@@ -110,7 +113,7 @@
         '<div class="field"><label for="en-branch">Branch</label><div class="with-steps">' +
           '<button type="button" class="icon-btn" data-bstep="-1" aria-label="Previous branch"' + (sel.branch === '__all' ? ' disabled' : '') + '>\u2039</button>' +
           '<select id="en-branch">' + report.branches.map(function (b) { return '<option' + (sel.branch === b ? ' selected' : '') + '>' + esc(b) + '</option>'; }).join('') +
-            (report.branches.length > 1 ? '<option value="__all"' + (sel.branch === '__all' ? ' selected' : '') + '>All branches</option>' : '') + '</select>' +
+            (report.branches.length > 1 && !pickMode() ? '<option value="__all"' + (sel.branch === '__all' ? ' selected' : '') + '>All branches</option>' : '') + '</select>' +
           '<button type="button" class="icon-btn" data-bstep="1" aria-label="Next branch"' + (sel.branch === '__all' ? ' disabled' : '') + '>\u203A</button></div></div>' +
         (sel.branch === '__all' && ds && ds.hasItems ? '<div class="field"><label for="en-field">Field</label><select id="en-field">' + itemFields().map(function (f) {
           return '<option value="' + esc(f.code) + '"' + (sel.field === f.code ? ' selected' : '') + '>' + esc(f.label) + '</option>'; }).join('') + '</select></div>' : '');
@@ -162,7 +165,7 @@
     function cellHtml(f, b, item) {
       const k = b + '|' + item + '|' + f.code;
       const li = linkInfo(f, b, item);
-      if (li && li.live) {
+      if (li && li.live && ds.raw(sel.period, b, item, f.code) === null) {
         return '<td class="num linked" title="From ' + esc(li.name) + '">' + esc(C.formatValue(li.value, f.type, RUPEES) || '0') +
           '<span class="link-tag">from ' + esc(li.name) + '</span></td>';
       }
@@ -195,7 +198,50 @@
       return '<th scope="col" class="' + (isNumeric(f.type) ? 'num' : '') + '">' + esc(f.label + unitHeader(f)) + (f.required ? ' <span class="req" aria-label="required">*</span>' : '') + '</th>';
     }
 
+    function pickGridHtml(b, plabel) {
+      const n = Number(ds.settings.entryRows);
+      const fields = itemFields();
+      const first = fields.find(function (f) { return isNumeric(f.type); });
+      const here = ds.index[sel.period] && ds.index[sel.period][b] ? ds.index[sel.period][b] : {};
+      const recs = Object.keys(here).filter(function (i) { return i; }).map(function (i) { return here[i]; })
+        .filter(function (r) { return fields.some(function (f) { return f.code in r.v; }); });
+      if (first) recs.sort(function (a, z) { return (Number(z.v[first.code]) || 0) - (Number(a.v[first.code]) || 0); });
+      pickRows = recs.map(function (r) { return { item: r.i, v: Object.assign({}, r.v) }; });
+      while (pickRows.length < n) pickRows.push({ item: '', v: {} });
+      const listName = (lists.find(function (l) { return l.id === ds.settings.itemList; }) || { name: 'list' }).name;
+      const dis = isLocked() ? ' disabled' : '';
+      return '<section class="panel"><h2>' + esc(b) + ', ' + esc(plabel) + '</h2>' +
+        '<div class="table-wrap"><table class="table entry-table pick-table" id="grid"><thead><tr><th scope="col" class="num">#</th><th scope="col">Item</th>' +
+          fields.map(th).join('') + '</tr></thead><tbody>' +
+          pickRows.map(function (r, idx) {
+            const opts = ds.items.filter(function (it) { return it.active !== false || it.name === r.item; });
+            return '<tr><td class="num muted">' + (idx + 1) + '</td><td><select data-pick="' + idx + '" aria-label="Item, row ' + (idx + 1) + '"' + dis + '>' +
+              '<option value="">Choose…</option>' + opts.map(function (it) {
+                return '<option' + (it.name === r.item ? ' selected' : '') + '>' + esc(it.name) + '</option>';
+              }).join('') + '</select></td>' +
+              fields.map(function (f) {
+                const v = r.v[f.code];
+                return '<td class="' + (isNumeric(f.type) ? 'num' : '') + '"><input type="text" autocomplete="off"' + (isNumeric(f.type) ? ' inputmode="decimal" class="num-input"' : '') +
+                  ' data-pr="' + idx + '" data-c="' + esc(f.code) + '" value="' + esc(v === undefined || v === null ? '' : String(v)) + '"' +
+                  ' aria-label="' + esc(f.label + ', row ' + (idx + 1)) + '"' + dis + '></td>';
+              }).join('') + '</tr>';
+          }).join('') + '</tbody>' +
+          '<tfoot><tr><td></td><th scope="row">Total</th>' + fields.map(function (f) {
+            return '<td class="num" data-ptotal="' + esc(f.code) + '"></td>'; }).join('') + '</tr></tfoot></table></div>' +
+        '<p class="muted small">Choose up to ' + n + ' items from the ' + esc(listName) + ' list. Rows can stay empty. ' +
+          'You can paste item names and figures together from Excel.</p></section>';
+    }
+    function pickOrig(el) {
+      const r = pickRows[Number(el.dataset.pr !== undefined ? el.dataset.pr : el.dataset.pick)];
+      if (!r) return '';
+      if (el.dataset.pick !== undefined) return r.item;
+      const v = r.v[el.dataset.c];
+      return v === undefined || v === null ? '' : String(v);
+    }
+    function pickEls() { return $$('[data-pr],[data-pick]', $('#en-body', main)); }
+
     function renderGrid() {
+      if (pickMode() && sel.branch === '__all') sel.branch = report.branches[0];
       originals = {};
       const body = $('#en-body', main);
       const plabel = C.periodLabel(sel.period);
@@ -209,6 +255,9 @@
           html += '<section class="panel"><h2>Once for ' + esc(b) + ', ' + esc(plabel) + '</h2><div class="table-wrap"><table class="table entry-table"><thead><tr>' +
             bf.map(th).join('') + '</tr></thead><tbody><tr>' + bf.map(function (f) { return cellHtml(f, b, ''); }).join('') + '</tr></tbody></table></div></section>';
         }
+        if (pickMode()) {
+          html += pickGridHtml(b, plabel);
+        } else {
         const fields = itemFields();
         const rowCalcs = calcs.filter(function (c) { return c.where !== 'totals' || !ds.hasItems; });
         const items = ds.hasItems ? visibleItems([b]) : [''];
@@ -225,6 +274,7 @@
           '</table></div>' +
           (ds.hasItems && calcs.some(function (c) { return c.where === 'totals'; }) ? '<p class="calc-note" id="tot-calcs"></p>' : '') +
           '</section>';
+        }
       } else if (!ds.hasItems) {
         const fields = inputFields();
         html += '<section class="panel"><h2>All branches, ' + esc(plabel) + '</h2><div class="table-wrap"><table class="table entry-table" id="grid"><thead><tr><th scope="col">Field</th>' +
@@ -273,10 +323,15 @@
     }
     function dirtyCount() {
       if (!ds) return 0;
-      return inputs().filter(function (el) { return norm(el) !== (originals[el.dataset.k] || ''); }).length;
+      return inputs().filter(function (el) { return norm(el) !== (originals[el.dataset.k] || ''); }).length +
+        pickEls().filter(function (el) { return norm(el) !== pickOrig(el); }).length;
     }
 
     function validate(el) {
+      if (el.dataset.pick !== undefined) {
+        el.classList.toggle('dirty', norm(el) !== pickOrig(el));
+        return true;
+      }
       const f = ds.fields[el.dataset.c];
       const v = norm(el);
       let bad = '';
@@ -287,7 +342,7 @@
         else if (f.type === 'quantity' && Math.round(n) !== n) bad = 'Whole numbers only';
       }
       if (bad) { el.setAttribute('aria-invalid', 'true'); el.title = bad; } else { el.removeAttribute('aria-invalid'); el.title = ''; }
-      el.classList.toggle('dirty', v !== (originals[el.dataset.k] || ''));
+      el.classList.toggle('dirty', v !== (el.dataset.pr !== undefined ? pickOrig(el) : (originals[el.dataset.k] || '')));
       return !bad;
     }
 
@@ -341,6 +396,16 @@
         const bs = td.dataset.coltotal === '__all' ? report.branches : [td.dataset.coltotal];
         td.textContent = fmt(preview.value(f.code, preview.ctx([sel.period], bs, null)), f.type);
       });
+      $$('[data-ptotal]', body).forEach(function (td) {
+        const f = ds.fields[td.dataset.ptotal];
+        if (!isNumeric(f.type)) { td.textContent = ''; return; }
+        let total = null;
+        $$('[data-pr][data-c="' + f.code + '"]', body).forEach(function (el) {
+          const v = norm(el);
+          if (v !== '' && isFinite(Number(v))) total = (total || 0) + Number(v);
+        });
+        td.textContent = fmt(total, f.type);
+      });
       const n = dirtyCount();
       $('#dirty-note', body).textContent = n ? n + ' unsaved change' + (n === 1 ? '' : 's') + '.' : 'No unsaved changes.';
       $('#save', body).disabled = !n || isLocked();
@@ -350,7 +415,7 @@
 
     function gridMatrix(el) {
       return $$('tbody tr', el.closest('table')).map(function (tr) {
-        return $$('td', tr).map(function (td) { return td.querySelector('[data-k]'); });
+        return $$('td', tr).map(function (td) { return td.querySelector('[data-k],[data-pr],[data-pick]'); });
       });
     }
     function findPos(matrix, el) {
@@ -363,10 +428,11 @@
 
     // Listeners live on the stable container so re-rendering the grid never stacks them.
     const enBody = $('#en-body', main);
-    enBody.addEventListener('input', function (e) { if (e.target.dataset && e.target.dataset.k) { validate(e.target); refresh(); } });
-    enBody.addEventListener('change', function (e) { if (e.target.dataset && e.target.dataset.k) { validate(e.target); refresh(); } });
+    const isCell = function (el) { return el && el.dataset && (el.dataset.k || el.dataset.pr !== undefined || el.dataset.pick !== undefined); };
+    enBody.addEventListener('input', function (e) { if (isCell(e.target)) { validate(e.target); refresh(); } });
+    enBody.addEventListener('change', function (e) { if (isCell(e.target)) { validate(e.target); refresh(); } });
     enBody.addEventListener('keydown', function (e) {
-      if (e.key !== 'Enter' || !e.target.dataset || !e.target.dataset.k || e.target.tagName === 'SELECT') return;
+      if (e.key !== 'Enter' || !isCell(e.target) || e.target.tagName === 'SELECT') return;
       e.preventDefault();
       const m = gridMatrix(e.target), p = findPos(m, e.target);
       if (!p) return;
@@ -377,7 +443,7 @@
     });
     enBody.addEventListener('paste', function (e) {
       const el = e.target;
-      if (!el.dataset || !el.dataset.k) return;
+      if (!isCell(el)) return;
       const text = (e.clipboardData || window.clipboardData).getData('text');
       if (!/[\t\n]/.test(text)) return;
       e.preventDefault();
@@ -388,7 +454,15 @@
         cells.forEach(function (v, j) {
           const row = matrix[pos.r + i];
           const target = row && row[pos.c + j];
-          if (target && !target.disabled) { target.value = v.trim(); validate(target); }
+          if (!target || target.disabled) return;
+          if (target.tagName === 'SELECT') {
+            const want = v.trim().toLowerCase();
+            const opt = Array.prototype.find.call(target.options, function (o) { return o.text.trim().toLowerCase() === want; });
+            if (opt) target.value = opt.value;
+          } else {
+            target.value = v.trim();
+          }
+          validate(target);
         });
       });
       refresh();
@@ -410,7 +484,44 @@
       return vals.length ? vals.reduce(function (a, x) { return a + x; }, 0) / vals.length : null;
     }
 
+    // Turns the pick rows into records: changed items are cleared, chosen items saved.
+    function pickChanges() {
+      const fields = itemFields();
+      const body = $('#en-body', main);
+      const clears = {}, sets = {};
+      let problem = '';
+      const count = {};
+      pickRows.forEach(function (orig, idx) {
+        const item = norm($('[data-pick="' + idx + '"]', body));
+        if (item) count[item] = (count[item] || 0) + 1;
+      });
+      Object.keys(count).forEach(function (i) { if (count[i] > 1 && !problem) problem = '"' + i + '" is chosen in more than one row.'; });
+      pickRows.forEach(function (orig, idx) {
+        const item = norm($('[data-pick="' + idx + '"]', body));
+        const vals = {};
+        let any = false, changed = item !== orig.item;
+        fields.forEach(function (f) {
+          const el = $('[data-pr="' + idx + '"][data-c="' + f.code + '"]', body);
+          const v = norm(el);
+          vals[f.code] = v;
+          if (v !== '') any = true;
+          if (v !== pickOrig(el)) changed = true;
+        });
+        if (!changed || problem) return;
+        if (!item && any) { problem = 'Row ' + (idx + 1) + ' has figures but no item. Choose the item or clear the figures.'; return; }
+        if (item) sets[item] = vals;
+        if (orig.item && orig.item !== item) {
+          const blank = {};
+          fields.forEach(function (f) { blank[f.code] = ''; });
+          clears[orig.item] = blank;
+        }
+      });
+      Object.keys(sets).forEach(function (i) { delete clears[i]; });
+      return { problem: problem, clears: clears, sets: sets };
+    }
+
     async function save() {
+      if (pickMode()) return savePick();
       const changed = inputs().filter(function (el) { return norm(el) !== (originals[el.dataset.k] || ''); });
       if (!changed.length) return;
       if (changed.map(validate).some(function (ok) { return !ok; })) { toast('Fix the cells marked in red first.', 'error'); return; }
@@ -443,6 +554,57 @@
       setBusy(btn, true, 'Saving…');
       try {
         const res = await api('records.save', { reportId: report.id, rows: Object.keys(rows).map(function (k) { return rows[k]; }) });
+        forgetRecords();
+        ds.upsert(res.records);
+        toast(res.saved ? 'Saved ' + res.saved + ' change' + (res.saved === 1 ? '' : 's') + '.' : 'Nothing needed saving.');
+        renderGrid();
+      } catch (err) {
+        toast(err.message, 'error');
+        setBusy(btn, false);
+      }
+    }
+
+    async function savePick() {
+      const body = $('#en-body', main);
+      const bad = pickEls().concat(inputs()).filter(function (el) { return !validate(el); });
+      if (bad.length) { toast('Fix the cells marked in red first.', 'error'); return; }
+      const pc = pickChanges();
+      if (pc.problem) { toast(pc.problem, 'error'); return; }
+      const b = sel.branch;
+      const rows = [];
+      Object.keys(pc.clears).forEach(function (i) { rows.push({ period: sel.period, branch: b, item: i, values: pc.clears[i] }); });
+      Object.keys(pc.sets).forEach(function (i) { rows.push({ period: sel.period, branch: b, item: i, values: pc.sets[i] }); });
+      // Fields entered once per branch, if the report has any.
+      const once = {};
+      inputs().forEach(function (el) {
+        if (norm(el) !== (originals[el.dataset.k] || '')) once[el.dataset.c] = norm(el);
+      });
+      if (Object.keys(once).length) rows.push({ period: sel.period, branch: b, item: '', values: once });
+      if (!rows.length) return;
+
+      const unusual = [];
+      Object.keys(pc.sets).forEach(function (i) {
+        itemFields().forEach(function (f) {
+          const v = Number(pc.sets[i][f.code]);
+          if (!isNumeric(f.type) || !(v > 0)) return;
+          const avg = historyAverage(b, i, f.code);
+          if (avg && avg > 0 && v > 3 * avg) unusual.push({ label: i + ', ' + f.label, v: v, avg: avg, type: f.type });
+        });
+      });
+      if (unusual.length) {
+        const ok = await modal({
+          title: 'Some figures are much higher than usual', submitLabel: 'Save anyway', cancelLabel: 'Go back and check',
+          body: '<p>These are more than 3 times the average of the previous 6 periods. Check for an extra zero before saving.</p><ul class="plain-list">' +
+            unusual.map(function (u) {
+              return '<li><strong>' + esc(u.label) + '</strong>: ' + esc(C.formatValue(u.v, u.type, RUPEES)) + ' (usually about ' + esc(C.formatValue(u.avg, u.type, RUPEES)) + ')</li>';
+            }).join('') + '</ul>',
+        });
+        if (!ok) return;
+      }
+      const btn = $('#save', body);
+      setBusy(btn, true, 'Saving…');
+      try {
+        const res = await api('records.save', { reportId: report.id, rows: rows });
         forgetRecords();
         ds.upsert(res.records);
         toast(res.saved ? 'Saved ' + res.saved + ' change' + (res.saved === 1 ? '' : 's') + '.' : 'Nothing needed saving.');
