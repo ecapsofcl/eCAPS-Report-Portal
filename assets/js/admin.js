@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const {
-    api, esc, $, $$, toast, modal, confirmAction, setBusy, route, navigate,
+    api, esc, $, $$, toast, modal, confirmAction, setBusy, route, navigate, getReports, clearReportsCache,
     pageHead, emptyState, fmtDateTime, randomPassword, state, ROLE_LABEL, MONTHS, getLists, clearListsCache, reportMeta,
   } = RP;
   const C = window.RPCalc;
@@ -31,7 +31,7 @@
   /* =============== Reports list =============== */
 
   route('/reports', ['superadmin'], 'reports', async function (main, ctx) {
-    const res = await Promise.all([api('reports.list'), getLists()]);
+    const res = await Promise.all([getReports(true), getLists()]);
     if (!ctx.alive()) return;
     const reports = res[0], lists = res[1];
     const newBtn = '<a class="btn btn-primary" href="#/reports/new">New report</a>';
@@ -74,20 +74,20 @@
         confirmLabel: 'Delete report', busyLabel: 'Deleting…', danger: true, typeToConfirm: r.name,
         action: function () { return api('reports.delete', { id: r.id }); },
       });
-      if (ok) { toast('Report deleted.'); navigate(); }
+      if (ok) { clearReportsCache(); toast('Report deleted.'); navigate(); }
     });
   });
 
   /* =============== Report builder =============== */
 
   route('/reports/new', ['superadmin'], 'reports', async function (main, ctx) {
-    const res = await Promise.all([api('reports.list'), getLists(true)]);
+    const res = await Promise.all([getReports(true), getLists(true)]);
     if (!ctx.alive()) return;
     renderBuilder(main, null, res[0], res[1]);
   });
 
   route('/reports/:id/edit', ['superadmin'], 'reports', async function (main, ctx) {
-    const res = await Promise.all([api('reports.list'), getLists(true)]);
+    const res = await Promise.all([getReports(true), getLists(true)]);
     if (!ctx.alive()) return;
     const report = res[0].find(function (r) { return r.id === ctx.params.id; });
     if (!report) { main.innerHTML = emptyState('Report not found', 'It may have been deleted.', '<a class="btn" href="#/reports">All reports</a>'); return; }
@@ -509,6 +509,7 @@
       setBusy(btn, true, editing ? 'Saving…' : 'Creating the sheet…');
       try {
         const saved = await api(editing ? 'reports.update' : 'reports.create', payload);
+        clearReportsCache();
         toast(editing ? 'Changes saved.' : 'Report created.');
         location.hash = editing ? '#/reports' : '#/access/' + encodeURIComponent(saved.id);
       } catch (err) {
