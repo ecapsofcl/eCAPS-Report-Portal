@@ -1,7 +1,7 @@
 /* Report Portal - data entry, report views and import */
 (function () {
   'use strict';
-  const { api, esc, $, $$, toast, modal, setBusy, route, state, pageHead, emptyState, getLists, reportMeta, MONTHS } = RP;
+  const { api, esc, $, $$, toast, modal, setBusy, route, state, pageHead, emptyState, getLists, getReports, reportMeta, loadError, MONTHS } = RP;
   const C = window.RPCalc;
   const isNumeric = function (t) { return C.NUMERIC.indexOf(t) !== -1; };
   const PALETTE = ['#0C6B65', '#E2A01B', '#4F6A8F', '#B0392A', '#6E8B3D', '#8A5A83', '#2A9D8F', '#C9772C', '#3D4F58', '#D4B24C'];
@@ -36,13 +36,13 @@
      ====================================================================== */
 
   route('/entry', ['superadmin', 'user'], 'entry', async function (main, ctx) {
-    const res = await Promise.all([api('reports.list'), getLists()]);
+    const res = await Promise.all([getReports(), getLists()]);
     if (!ctx.alive()) return;
     main.innerHTML = reportPicker(res[0], 'entry', 'Enter data', 'Choose a report. Then pick the period and branch; saved figures appear ready to edit.', res[1]);
   });
 
   route('/entry/:id', ['superadmin', 'user'], 'entry', async function (main, ctx) {
-    const res = await Promise.all([getLists(), api('reports.list')]);
+    const res = await Promise.all([getLists(), getReports()]);
     if (!ctx.alive()) return;
     const lists = res[0], reports = res[1];
     const report = reports.find(function (r) { return r.id === ctx.params.id; });
@@ -68,7 +68,13 @@
     async function load() {
       const m = sel.period.slice(0, 7);
       $('#en-body', main).innerHTML = loadingHtml();
-      const data = await api('records.get', { reportId: report.id, from: C.monthAdd(m, -13), to: isDate ? sel.period : m });
+      let data;
+      try {
+        data = await api('records.get', { reportId: report.id, from: C.monthAdd(m, -13), to: isDate ? sel.period : m });
+      } catch (err) {
+        if (ctx.alive()) loadError($('#en-body', main), err, load);
+        return;
+      }
       if (!ctx.alive()) return;
       ds = new C.Dataset(data.report, data.records, lists, data.linked);
       locks = data.locks;
@@ -448,13 +454,13 @@
      ====================================================================== */
 
   route('/view', ['superadmin', 'admin'], 'view', async function (main, ctx) {
-    const res = await Promise.all([api('reports.list'), getLists()]);
+    const res = await Promise.all([getReports(), getLists()]);
     if (!ctx.alive()) return;
     main.innerHTML = reportPicker(res[0], 'view', 'View reports', 'Choose a report to see it by month, quarter, half-year or year.', res[1]);
   });
 
   route('/view/:id', ['superadmin', 'admin'], 'view', async function (main, ctx) {
-    const res = await Promise.all([getLists(), api('reports.list')]);
+    const res = await Promise.all([getLists(), getReports()]);
     if (!ctx.alive()) return;
     const lists = res[0], reports = res[1];
     const report = reports.find(function (r) { return r.id === ctx.params.id; });
@@ -481,9 +487,15 @@
 
     async function load() {
       $('#v-body', main).innerHTML = loadingHtml();
-      const data = await api('records.get', {
-        reportId: report.id, from: C.fyStartMonth(sel.fy - 1, ys), to: C.monthAdd(C.fyStartMonth(sel.fy, ys), 11),
-      });
+      let data;
+      try {
+        data = await api('records.get', {
+          reportId: report.id, from: C.fyStartMonth(sel.fy - 1, ys), to: C.monthAdd(C.fyStartMonth(sel.fy, ys), 11),
+        });
+      } catch (err) {
+        if (ctx.alive()) loadError($('#v-body', main), err, load);
+        return;
+      }
       if (!ctx.alive()) return;
       ds = new C.Dataset(data.report, data.records, lists, data.linked);
       loadedFy = sel.fy;
@@ -852,7 +864,7 @@
   RP.normalizePeriod = normalizePeriod;
 
   route('/import/:id', ['superadmin'], 'reports', async function (main, ctx) {
-    const res = await Promise.all([getLists(), api('reports.list')]);
+    const res = await Promise.all([getLists(), getReports()]);
     if (!ctx.alive()) return;
     const lists = res[0];
     const report = res[1].find(function (r) { return r.id === ctx.params.id; });
