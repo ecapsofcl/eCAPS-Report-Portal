@@ -429,6 +429,8 @@ window.RP = (function () {
   function signOut() {
     api('auth.logout').catch(function () { /* ignore */ });
     clearSession();
+    clearListsCache();
+    clearReportsCache();
     $('#app').innerHTML = '';
     history.replaceState(null, '', '#/login');
     navigate();
@@ -478,6 +480,8 @@ window.RP = (function () {
       try {
         const res = await api('auth.login', { username: username, password: password });
         saveSession(res.token, res.user);
+        clearListsCache();
+        clearReportsCache();
         $('#app').innerHTML = '';
         history.replaceState(null, '', '#' + home(res.user.role));
         navigate();
@@ -547,6 +551,21 @@ window.RP = (function () {
   }
   function clearListsCache() { listsCache = null; }
 
+  // The report list rarely changes, so it is fetched once per visit and reused.
+  let reportsCache = null;
+  async function getReports(force) {
+    if (!reportsCache || force) reportsCache = await api('reports.list');
+    return reportsCache;
+  }
+  function clearReportsCache() { reportsCache = null; }
+
+  // Shown when loading figures fails, instead of an endless "Loading…".
+  function loadError(el, err, retry) {
+    el.innerHTML = '<div class="empty compact" role="alert"><p><strong>Could not load the figures.</strong></p><p class="muted">' +
+      esc(err && err.message ? err.message : String(err)) + '</p><button class="btn btn-primary" type="button">Try again</button></div>';
+    el.querySelector('button').addEventListener('click', retry);
+  }
+
   function reportMeta(r, lists) {
     const s = r.settings || {};
     const list = s.itemList ? (lists || []).find(function (l) { return l.id === s.itemList; }) : null;
@@ -577,6 +596,6 @@ window.RP = (function () {
     fmtNumber: fmtNumber, fmtCurrency: fmtCurrency, fmtCompact: fmtCompact, fmtDate: fmtDate,
     fmtDateTime: fmtDateTime, fmtValue: fmtValue, monthLabel: monthLabel, todayISO: todayISO,
     isBlank: isBlank, randomPassword: randomPassword, reduceMotion: reduceMotion,
-    ROLE_LABEL: ROLE_LABEL, MONTHS: MONTHS, start: start, signOut: signOut, setLeaveGuard: setLeaveGuard, getLists: getLists, clearListsCache: clearListsCache, reportMeta: reportMeta,
+    ROLE_LABEL: ROLE_LABEL, MONTHS: MONTHS, start: start, signOut: signOut, setLeaveGuard: setLeaveGuard, getLists: getLists, clearListsCache: clearListsCache, getReports: getReports, clearReportsCache: clearReportsCache, loadError: loadError, reportMeta: reportMeta,
   };
 })();
