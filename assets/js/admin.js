@@ -578,7 +578,7 @@
           (usedBy.length && current.id !== 'l_branches' ? '<p class="muted small">Used by: ' + esc(usedBy.map(function (r) { return r.name; }).join(', ')) + '</p>' : '') +
           '<div class="table-wrap"><table class="table compact-table"><thead><tr><th>Item</th><th>Active</th><th><span class="sr-only">Order</span></th></tr></thead><tbody id="l-items"></tbody></table></div>' +
           '<div class="field"><label for="l-add">Add items <em>one per line</em></label><textarea id="l-add" rows="3" placeholder="New item names"></textarea></div>' +
-          '<p class="muted small">Saved items can\u2019t be renamed or removed, because data refers to them. Untick Active to hide one from entry; its history stays.</p>' +
+          '<p class="muted small">Rename updates every report\u2019s saved figures too. Remove deletes the item and, after you confirm, its figures. Untick Active to hide an item from entry but keep its history.</p>' +
           '<p class="form-error" role="alert" hidden></p>' +
           '<div class="form-actions"><button class="btn btn-primary" type="submit">' + (isNew ? 'Create list' : 'Save list') + '</button>' +
             (!isNew && !current.system ? '<button class="btn btn-danger-quiet" type="button" id="l-delete">Delete list</button>' : '') + '</div>' +
@@ -594,7 +594,9 @@
           '<td><input type="checkbox" data-k="active"' + (it.active ? ' checked' : '') + ' aria-label="Active"></td>' +
           '<td class="row-actions"><button type="button" class="icon-btn" data-act="up" aria-label="Move up"' + (i ? '' : ' disabled') + '>\u2191</button>' +
           '<button type="button" class="icon-btn" data-act="down" aria-label="Move down"' + (i < items.length - 1 ? '' : ' disabled') + '>\u2193</button>' +
-          (!it.saved ? '<button type="button" class="btn btn-small btn-danger-quiet" data-act="del">Remove</button>' : '') + '</td></tr>';
+          (!it.saved ? '<button type="button" class="btn btn-small btn-danger-quiet" data-act="del">Remove</button>'
+            : '<button type="button" class="btn btn-small" data-act="rename">Rename</button>' +
+               '<button type="button" class="btn btn-small btn-danger-quiet" data-act="remove">Remove</button>') + '</td></tr>';
       }).join('') || '<tr><td colspan="3" class="muted">No items yet.</td></tr>';
     }
     draw();
@@ -606,10 +608,59 @@
       const tr = e.target.closest('tr[data-i]');
       if (tr && e.target.dataset.k === 'active') items[Number(tr.dataset.i)].active = e.target.checked;
     });
-    tbody.addEventListener('click', function (e) {
+    function afterListChange(msg) {
+      clearListsCache();
+      RP.clearReportsCache();
+      RP.forgetRecords();
+      toast(msg);
+      navigate();
+    }
+    tbody.addEventListener('click', async function (e) {
       const b = e.target.closest('[data-act]');
       if (!b) return;
       const i = Number(b.closest('tr').dataset.i);
+      if (b.dataset.act === 'rename') {
+        const oldName = items[i].name;
+        const others = lists.filter(function (l) {
+          return l.id !== current.id && !l.system && l.items.some(function (x) { return x.name === oldName; });
+        });
+        const ok = await modal({
+          title: 'Rename "' + oldName + '"', submitLabel: 'Rename', busyLabel: 'Renaming…',
+          body: '<label class="field"><span>New name</span><input name="to" maxlength="80" value="' + esc(oldName) + '" required></label>' +
+            (others.length ? '<fieldset class="field"><legend>Also in other lists</legend>' + others.map(function (l) {
+              return '<label class="check"><input type="checkbox" name="also" value="' + esc(l.id) + '" checked>Rename it in ' + esc(l.name) + ' too</label>';
+            }).join('') + '<small>Keep these ticked so reports that take figures from each other still match.</small></fieldset>' : '') +
+            '<p class="muted small">' + (current.system
+              ? 'Every report\u2019s figures, branch settings and people\u2019s access for "' + esc(oldName) + '" move to the new name.'
+              : 'Every report\u2019s figures for "' + esc(oldName) + '" move to the new name, including history and links.') + '</p>',
+          onSubmit: function (form) {
+            const to = form.elements.to.value.trim();
+            if (!to) throw new Error('Type the new name.');
+            const also = $$('input[name=also]:checked', form).map(function (c) { return c.value; });
+            return api('lists.renameItem', { listId: current.id, from: oldName, to: to, alsoListIds: also });
+          },
+        });
+        if (ok) afterListChange('Renamed. ' + (ok.renamed ? ok.renamed + ' saved figure' + (ok.renamed === 1 ? '' : 's') + ' updated.' : ''));
+        return;
+      }
+      if (b.dataset.act === 'remove') {
+        const name = items[i].name;
+        let res;
+        try { res = await api('lists.removeItem', { listId: current.id, name: name }); }
+        catch (err) { toast(err.message, 'error'); return; }
+        if (res.removed) { afterListChange('"' + name + '" removed.' + (res.accessRemoved ? ' ' + res.accessRemoved + ' access entr' + (res.accessRemoved === 1 ? 'y' : 'ies') + ' that only covered it were removed.' : '')); return; }
+        const ok = await confirmAction({
+          title: 'Remove "' + name + '" and its figures?',
+          message: '"' + name + '" has ' + res.rows + ' saved row' + (res.rows === 1 ? '' : 's') + ' of figures in: ' + res.reports.join(', ') +
+            '. Removing it deletes those figures permanently' + (current.system ? ', takes it out of every report and removes it from people\u2019s access' : '') +
+            (current.system ? '. To stop using it but keep its history, untick it under Branches in each report\u2019s Edit page instead.'
+              : '. To hide it from entry but keep history, untick Active instead.'),
+          confirmLabel: 'Remove and delete figures', busyLabel: 'Removing…', danger: true, typeToConfirm: name,
+          action: function () { return api('lists.removeItem', { listId: current.id, name: name, deleteData: true }); },
+        });
+        if (ok) afterListChange('"' + name + '" and its figures removed.');
+        return;
+      }
       if (b.dataset.act === 'del') items.splice(i, 1);
       else {
         const j = b.dataset.act === 'up' ? i - 1 : i + 1;
@@ -976,6 +1027,7 @@
     'auth.login': 'Signed in', 'auth.changePassword': 'Changed own password',
     'users.create': 'Added a user', 'users.update': 'Changed a user', 'users.delete': 'Deleted a user',
     'lists.save': 'Saved a list', 'lists.delete': 'Deleted a list',
+    'lists.renameItem': 'Renamed a list item', 'lists.removeItem': 'Removed a list item',
     'reports.create': 'Created a report', 'reports.update': 'Edited a report', 'reports.delete': 'Deleted a report',
     'access.set': 'Gave or changed access', 'access.revoke': 'Removed access',
     'records.save': 'Saved figures', 'records.import': 'Imported figures',
