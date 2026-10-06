@@ -1058,7 +1058,7 @@
           (list ? '<tr><td><code>Item</code></td><td>An item from the ' + esc(list.name) + ' list. Leave blank for fields entered once per branch.</td></tr>' : '') +
           fields.map(function (f) {
             return '<tr><td><code>' + esc(f.code) + '</code></td><td>' + esc(f.label) + (f.type === 'amount' ? ', in rupees' : '') +
-              (f.level === 'branch' && list ? ' (on rows with a blank Item)' : '') + '</td></tr>';
+              (f.level === 'branch' && list ? ' (once per branch and month: on a row with a blank Item, or repeated with the same value on every item row)' : '') + '</td></tr>';
           }).join('') +
         '</tbody></table></div>' +
         '<p class="muted small">Blank cells are skipped, so importing never clears a figure. A figure for the same period, branch and item is replaced.</p>' +
@@ -1095,6 +1095,13 @@
       const ignored = head.filter(function (h, i) { return h && i !== ip && i !== ib && i !== ii && !fmap.some(function (x) { return x.i === i; }); });
 
       const records = [];
+      // Fields entered once per branch may be repeated on every item row (as in many
+      // existing sheets). The same value repeated is taken once; different values are an error.
+      const onceVals = {};
+      const onceRow = function (period, branch) {
+        const k = period + '|' + branch;
+        return onceVals[k] || (onceVals[k] = { period: period, branch: branch, values: {}, lines: {} });
+      };
       if (!errors.length) {
         rows.slice(1).forEach(function (r, n) {
           const line = n + 2;
@@ -1108,12 +1115,28 @@
           fmap.forEach(function (x) {
             const v = String(r[x.i] === undefined ? '' : r[x.i]).trim();
             if (v === '') return;
-            if (list && (x.f.level === 'branch') !== !item) return;
             const clean = isNumeric(x.f.type) ? v.replace(/[,₹\s]/g, '') : v;
             if (isNumeric(x.f.type) && !isFinite(Number(clean))) { errors.push('Line ' + line + ': ' + x.f.code + ' "' + v + '" is not a number.'); return; }
+            if (list && x.f.level === 'branch') {
+              const o = onceRow(period, branch);
+              const prev = o.values[x.f.code];
+              if (prev !== undefined && (isNumeric(x.f.type) ? Number(prev) !== Number(clean) : prev !== clean)) {
+                errors.push('Line ' + line + ': ' + x.f.code + ' for ' + branch + ', ' + period + ' is ' + v + ', but line ' + o.lines[x.f.code] +
+                  ' has ' + prev + '. It is entered once per branch and month, so it must be the same on every row.');
+                return;
+              }
+              o.values[x.f.code] = clean;
+              o.lines[x.f.code] = line;
+              return;
+            }
+            if (list && !item) return;
             values[x.f.code] = clean;
           });
           if (Object.keys(values).length) records.push({ period: period, branch: branch, item: item, values: values });
+        });
+        Object.keys(onceVals).forEach(function (k) {
+          const o = onceVals[k];
+          if (Object.keys(o.values).length) records.push({ period: o.period, branch: o.branch, item: '', values: o.values });
         });
       }
       const periods = records.map(function (r) { return r.period; }).sort();
