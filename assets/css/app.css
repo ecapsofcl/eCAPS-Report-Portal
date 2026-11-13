@@ -585,9 +585,31 @@ th.calc-col { color: var(--teal-2); }
 @media (max-width: 1100px) { .db-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 600px) { .db-box, .db-tall .db-box { height: 250px; } .db-v { font-size: 1.35rem; } }
 @media print {
-  .db-viewtabs, .db-controls, .db-pills, .db-tools, .db-hint { display: none !important; }
-  .db-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .db-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .db-box, .db-tall .db-box { height: 220px; }
-  .db-kpi, .db-panel { break-inside: avoid; }
+  /* One A4 page per print (e.g. one branch per sheet). Charts are redrawn at print size before printing (see dashboard.js). */
+  .db-viewtabs, .db-controls, .db-pills, .db-tools, .db-hint, .db-table { display: none !important; }
+  .page-head h1 { font-size: 18px; }
+  .page-head p { font-size: 9px; }
+  .db-crumbs { margin: 0 0 4px; font-size: 10px; }
+  .db-strip { margin-bottom: 6px; }
+  .db-strip .table th, .db-strip .table td { padding: 2px 6px; font-size: 9px; }
+  .db-kpis { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 5px; margin-bottom: 6px; }
+  .db-kpi { padding: 5px 7px 4px; border-radius: 5px; break-inside: avoid; }
+  .db-k { font-size: 7px; letter-spacing: .03em; }
+  .db-v { font-size: 13px; margin: 3px 0 1px; }
+  .db-v .db-name { font-size: 12px; }
+  .db-v small { font-size: 8px; }
+  .db-s { font-size: 7.5px; min-height: 0; }
+  .db-chip { font-size: 7.5px; padding: 0 4px; }
+  .db-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
+  .db-grid.db-one { display: block; }
+  .panel.db-panel { border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px 4px; margin: 0 0 6px; break-inside: avoid; page-break-inside: avoid; }
+  .db-ph { margin-bottom: 2px; }
+  .db-ph h2 { font-size: 10.5px; }
+  .db-box, .db-tall .db-box { height: auto; width: 100%; }
+  .db-box canvas { max-width: 100%; }
+  .db-drill { margin-top: 4px; padding-top: 6px; border-top: 1px solid var(--line); }
+  .db-dh { margin-bottom: 5px; }
+  .db-dh h2 { font-size: 13px; }
+  .db-dsub { font-size: 10px; }
+  .db > .muted.small { font-size: 7.5px; margin: 2px 0 0; }
 }
