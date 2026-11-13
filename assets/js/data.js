@@ -642,15 +642,15 @@
     const now = thisMonth();
     const sel = Object.assign({
       fy: C.fyStartYear(now, ys), level: isDate ? 'date' : 'month', branch: '', item: '',
-      rows: 'period', cols: 'fields', measure: '', chart: 'auto',
+      rows: 'period', cols: 'fields', measure: '', chart: 'auto', mode: 'table',
     }, recall(vkey) || {});
-    let ds = null, loadedFy = null, chart = null, lastModel = null;
+    let ds = null, loadedFy = null, chart = null, lastModel = null, dash = null;
 
     main.innerHTML = pageHead(report.name, reportMeta(report, lists) + '. Amounts in ' + C.unitLabel(s) + '.',
       (state.user.role === 'superadmin' ? '<a class="btn btn-quiet" href="#/entry/' + encodeURIComponent(report.id) + '">Enter data</a>' : '') +
       '<button class="btn btn-quiet" type="button" id="v-print">Print or PDF</button>' +
       '<button class="btn" type="button" id="v-xlsx">Export Excel</button>') +
-      '<section class="panel selector-bar" id="v-sel"></section><div id="v-body">' + loadingHtml() + '</div>';
+      '<section class="panel selector-bar" id="v-sel"></section><div class="db-viewtabs" id="v-tabs"></div><div id="v-body">' + loadingHtml() + '</div>';
 
     $('#v-print', main).addEventListener('click', function () { window.print(); });
     $('#v-xlsx', main).addEventListener('click', function () { exportExcel(); });
@@ -891,12 +891,27 @@
     }
     function numCls(c) { return (isNumeric(c.type) || c.rank ? 'num' : '') + (c.calc ? ' calc-col' : ''); }
 
+    // Table / Dashboard tabs below the filters. The filters above are shared by both.
+    function renderTabs() {
+      const box = $('#v-tabs', main);
+      box.innerHTML = RP.sheetTabs(['Table', 'Dashboard'], sel.mode === 'dash' ? 'Dashboard' : 'Table', { label: 'Report view' });
+      box.querySelectorAll('[data-tab]').forEach(function (b) {
+        b.addEventListener('click', function () { sel.mode = b.dataset.tab === 'Dashboard' ? 'dash' : 'table'; remember(vkey, sel); render(); });
+      });
+    }
+
     function render() {
       renderSelectors();
+      renderTabs();
       const body = $('#v-body', main);
       if (chart) { chart.destroy(); chart = null; }
+      if (dash) { dash.destroy(); dash = null; }
       const model = buildModel();
       lastModel = model;
+      if (sel.mode === 'dash' && window.RPDashboard) {
+        dash = RPDashboard.render(body, { report: report, ds: ds, sel: sel, lists: lists });
+        return;
+      }
       if (!model) { body.innerHTML = emptyState('Nothing to show', 'This report has no number fields to show across columns.'); return; }
       const hasData = model.rows.some(function (r) { return r.cells.some(function (v) { return v !== null && v !== ''; }); });
       body.innerHTML =
