@@ -18,6 +18,28 @@
     Chart.defaults.plugins.datalabels = Object.assign(Chart.defaults.plugins.datalabels || {}, { display: false });
   }
 
+  // Printing: the page shrinks to A4, so each chart is redrawn at print size first, then restored.
+  // A4 printable width is about 718px; charts sharing a row get half of it. Heights keep the whole dashboard on one page.
+  const PRINT_W = 680, PRINT_HALF = 330, PRINT_H = 158;
+  const live = [];
+  let printing = false; // charts label fewer points when printed small
+  function forPrint(ch) {
+    const grid = ch.canvas.closest('.db-grid');
+    const paired = grid && !grid.classList.contains('db-one');
+    if (ch.config.type === 'doughnut') { const l = ch.options.plugins.legend.labels; l.font = { size: 8 }; l.boxWidth = 7; l.boxHeight = 7; l.padding = 4; }
+    if (ch.options.indexAxis === 'y') ch.options.scales.y.ticks.font = { size: 8, weight: 600 };
+    ch.resize(paired ? PRINT_HALF : PRINT_W, PRINT_H);
+    ch.update('none');
+  }
+  function forScreen(ch) {
+    if (ch.config.type === 'doughnut') { const l = ch.options.plugins.legend.labels; l.font = { size: 12 }; l.boxWidth = 10; l.boxHeight = 10; l.padding = 10; }
+    if (ch.options.indexAxis === 'y') ch.options.scales.y.ticks.font = { weight: 600 };
+    ch.resize();
+    ch.update('none');
+  }
+  window.addEventListener('beforeprint', function () { printing = true; live.forEach(forPrint); });
+  window.addEventListener('afterprint', function () { printing = false; live.forEach(forScreen); });
+
   function remember(key, obj) { try { sessionStorage.setItem(key, JSON.stringify(obj)); } catch (e) { /* ignore */ } }
   function recall(key) { try { return JSON.parse(sessionStorage.getItem(key) || 'null'); } catch (e) { return null; } }
 
@@ -338,7 +360,7 @@
       const cv = document.getElementById(id); if (!cv) return null;
       cfg.options = Object.assign({ responsive: true, maintainAspectRatio: false, animation: anim, onHover: pointer }, cfg.options || {});
       cfg.options.plugins = Object.assign({ legend: { display: false } }, cfg.options.plugins || {});
-      const ch = new Chart(cv, cfg); charts.push(ch); return ch;
+      const ch = new Chart(cv, cfg); charts.push(ch); live.push(ch); return ch;
     }
     const valueAxis = function () { return { beginAtZero: true, grid: { color: GRID }, border: { display: false }, title: { display: !!unitWord, text: unitWord } }; };
     const labels = function (extra) { return Object.assign({ display: true, color: INK, font: { weight: 600, size: 11 }, formatter: function (x) { return chartLabel(M.type === 'amount' ? x * factor : x); } }, extra || {}); };
@@ -372,7 +394,7 @@
               generateLabels: function (ch) { return names.map(function (n, i) { return { text: n + ' (' + share(shown[i].v, grand) + ')', fillStyle: colorOf(n), strokeStyle: colorOf(n), index: i, hidden: false }; }); } },
               onClick: function (e, item) { if (!shown[item.index].others) setFocus(names[item.index], true); } },
             tooltip: Object.assign({}, tip, { callbacks: { label: function (c) { const r = shown[c.dataIndex]; return ' ' + r.name + ': ' + fmt(r.v) + unitSuffix + ' (' + share(r.v, grand) + ')'; } } }),
-            datalabels: { display: function (c) { return grand && shown[c.dataIndex].v / grand >= 0.04; }, color: '#fff', font: { weight: 700, size: 12 },
+            datalabels: { display: function (c) { return grand && shown[c.dataIndex].v / grand >= (printing ? 0.10 : 0.04); }, color: '#fff', font: { weight: 700, size: 12 },
               textStrokeColor: 'rgba(0,0,0,.35)', textStrokeWidth: 2, formatter: function (x, c) { return Math.round(shown[c.dataIndex].v / grand * 100) + '%'; } },
           },
         },
@@ -387,7 +409,7 @@
         options: {
           indexAxis: 'y', layout: { padding: { right: 96 } },
           onClick: function (e, els) { if (els.length) setBranch(allBranches[els[0].index]); },
-          scales: { x: valueAxis(), y: { grid: { display: false }, ticks: { font: { weight: 600 } } } },
+          scales: { x: valueAxis(), y: { grid: { display: false }, ticks: { autoSkip: false, font: { weight: 600 } } } },
           plugins: { tooltip: Object.assign({}, tip, { callbacks: { label: function (c) { const x = branchVals[c.dataIndex]; return ' ' + fmt(x) + unitSuffix + (additive && total ? ' · ' + share(x, total) + ' of ' + tipWord : ''); } } }),
             datalabels: labels({ anchor: 'end', align: 'end', offset: 4, clip: false,
               formatter: function (x, c) { const raw = branchVals[c.dataIndex]; return raw === null ? '' : chartLabel(raw) + (additive && total ? '  (' + Math.round(raw / total * 100) + '%)' : ''); } }) },
@@ -402,6 +424,8 @@
     function drawMonths() {
       const ps = loaded.filter(function (p) { return p <= P; }).slice(-12);
       const vals = ps.map(totalVal);
+      let hi = -1, lo = -1;
+      vals.forEach(function (x, i) { if (x === null) return; if (hi < 0 || x > vals[hi]) hi = i; if (lo < 0 || x < vals[lo]) lo = i; });
       mk('db-months', {
         type: 'bar',
         data: { labels: ps.map(short), datasets: [{ data: vals.map(chartNum), backgroundColor: ps.map(function (p) { return p === P ? PALETTE[0] : '#A9CFCB'; }), borderRadius: 4, borderSkipped: 'bottom', maxBarThickness: 34 }] },
@@ -411,6 +435,7 @@
           scales: { y: valueAxis(), x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true, font: { size: 11 } } } },
           plugins: { tooltip: Object.assign({}, tip, { displayColors: false, callbacks: { title: function (c) { return label(ps[c[0].dataIndex]); }, label: function (c) { return fmt(vals[c.dataIndex]) + unitSuffix; } } }),
             datalabels: labels({ anchor: 'end', align: 'end', offset: 1, color: INK2, font: { size: 10, weight: 600 },
+              display: function (c) { return vals[c.dataIndex] !== null && (!printing || c.dataIndex === hi || c.dataIndex === lo || ps[c.dataIndex] === P); },
               formatter: function (x) { return x === null ? '' : Math.round(x).toLocaleString(loc); } }) },
         },
       });
@@ -468,7 +493,10 @@
       const al = q('#db-all-labels'); if (al) al.addEventListener('change', function (e) { dst.allLabels = e.target.checked; save(); redraw(); });
       el.querySelectorAll('[data-range]').forEach(function (b) { b.addEventListener('click', function () { dst.range = b.dataset.range; save(); redraw(); }); });
     }
-    function destroyCharts() { charts.forEach(function (c) { c.destroy(); }); charts = []; }
+    function destroyCharts() {
+      charts.forEach(function (c) { const i = live.indexOf(c); if (i !== -1) live.splice(i, 1); c.destroy(); });
+      charts = [];
+    }
     function destroy() { destroyCharts(); }
 
     const handle = { destroy: destroy };
